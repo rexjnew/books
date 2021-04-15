@@ -1,0 +1,41 @@
+pipeline {
+    agent any
+
+    environment {
+        name = "rexjliu"
+        date = "2021-04-15"
+    }
+
+
+    stages {
+
+       stage("build") {
+           steps {
+               echo "stage build"
+               echo "evn.name = ${env.name}"
+               echo "env.date = ${env.date}"
+            }
+       }
+
+
+       stage("test") {
+           steps {
+               echo "stage test"
+               sh """
+                   echo 1 
+                   echo 2
+                  """
+           }
+
+       }
+
+    }
+
+    post {
+
+        always {
+           echo "post always execute"
+        }
+    }
+
+}
