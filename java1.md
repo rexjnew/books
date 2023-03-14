@@ -6,4 +6,6 @@ java -cp bin/ main.Main
 
 cd bin
 
-jar -cef  main.Main ../a.jar com/ main/
+jar -cef  main.Main ../a.jar com/ main/  
+java -jar a.jar
+
