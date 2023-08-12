@@ -1,0 +1,635 @@
+https://www.cnblogs.com/swordfall/p/12119010.html
+
+1.1. LDAP基本概念
+LDAP的目的是为各种软件提供统一标准的认证机制，所有软件就可以不再用独有的用户管理方法，而是通过这种统一的认证机制进行用户认证。
+
+1.2. LDAP的主要应用场景
+网络服务：DNS服务
+统一认证服务
+Linux PAM（ssh，login, cvs…）
+Apache访问控制
+各种服务登录（ftpd， php based, perl based, python based…）
+个人信息类，比如地址簿
+服务器信息，如账号管理，邮件服务等
+1.3. LDAP的用户管理示例
+管理多台Linux服务器时，如果每台服务器都有自己独立的用户名和密码，那么记忆和维护这些信息就非常具有挑战性。举例： 每次学生上机的座位可能都不同，用户名和密码等相关的信息经常被修改。如果相互配合不好，就很容易造成有些人无法登录，并且学生的文件资料也难以保存。通过将老师使用的电脑配置成为LDAP和NFS服务器，为所有的学生提供密码验证服务来解决这个问题。
+
+轻量级目录访问协议（LDAP）提供了安全、可靠的账号管理。Linux发行版中提供的OpenLDAP软件安装一个客户机/服务器模型实现了轻量级目录访问协议（LDAP）
+
+1.4. LDAP的基本模型
+LDAP的基本模型是建立在"条目"（Entry）的基础上。一个条目是一个或多个属性的集合，并且具有一个全局唯一的"可区分名称"（用dn表示）。与关系型数据（后面简称数据库）进行类比，一个条目相当于数据库中的一条记录，而dn相当于数据库中记录的关键字，属性相当于数据库中的字段。
+
+温馨提示：dn必须是全局唯一的。
+
+LDAP中，将数据组织成一个树形结构，这与现实生活中的很多数据结构可以对应起来，而不像设计关系型数据库的表，需要进行多种变化。如下图所展示的就是一个树形结构的数据。
+
+
+
+在上图所示的树形结构中，树的根结点是一个组织的域名（node3.com，可以根据自己意愿配），其下分为2个部分，分别是ou=admin和dc=hdp，dc=hdp下面又分ou=people和ou=group。admin用来管理所有管理人员，people用来管理登录系统的用户，group用来管理系统中的用户组。当然，在该图中还可继续增加其他分支。
+
+对于图中所示的树形结构，使用关系数据库来保存数据的话，需要设置多个表，一层一层分别保存，当需要查找某个信息时，再逐层进行查询，最终得到结果。
+
+若使用目录来保存该图中的数据，则更直观。图中每个结点用一个条目来保存，不同类型的结点需要保存的数据可能不同，在LDAP中通过一个称为objectClass的类型来控制不同结点需要的数据（称为属性）。
+
+1.5. LDAP的工作模型
+
+
+openLDAP工作模型解释如下：
+
+客户端向OpenLDAP服务器发起验证请求；
+服务器接受用户请求后，并通过slapd进程向后端的数据库进行查询；
+slapd将查询的结果返回给客户端即可。如果有缓存机制，服务器端会先将查询的条目进行缓存，然后再发给客户端。
+2. OPENLDAP安装部署
+这里，举例：有5台机器，选择其中一台安装openldap的服务端，然后在所有的机器都得安装openldap的客户端。
+
+2.1. openldap服务端安装
+2.1.1. openldap服务端必要软件安装
+1.使用yum命令安装
+
+# yum install -y openldap openldap-clients openldap-servers compat-openldap openldap-devel
+2. 安装libdb相关依赖
+
+# yum -y install libdb.x86_64 libdb-devel.x86_64
+3. 复制一个默认配置到指定目录下，并授权，这一步一定要做，然后再启动服务，不然生成密码时会报错
+
+# cp /usr/share/openldap-servers/DB_CONFIG.example /var/lib/ldap/DB_CONFIG
+4. 授权给ldap用户，此用户yum安装时便会自动创建
+
+# chown -R ldap. /var/lib/ldap/DB_CONFIG
+5. 启动ldap server服务，先启动服务，配置后面再进行修改
+
+# systemctl start slapd
+# systemctl enable slapd
+6. 查看状态，正常启动则OK
+
+# systemctl status slapd
+2.1.2.  修改管理者密码
+从openldap2.4.23版本开始，所有配置都保存在/etc/openldap/slapd.d目录下的cn=config文件夹内，不再使用slapd.conf作为配置文件。配置文件的后缀为ldif，且每个配置文件都是通过命令自动生成的，任意打开一个配置文件，在开头都会有一行注释，说明此为自动生成的文件，请勿编译，使用ldapmodify命令进行修改。
+
+安装openldap后，会有三个命令用于修改配置文件，分别为ldapadd，ldapmodify，ldapdelete，顾名思义就是添加，修改和删除。而需要修改或增加配置时，则需要先写一个ldif后缀的配置文件，然后通过命令将写的配置更新到slapd.d目录下的配置文件中去，完整的配置过程如下：
+
+1. 生成管理员密码，记录下这个密码，后面需要用到
+
+# slappasswd -s 123456
+{SSHA}kUhPHG2ffoZKzwl/pUxQg6W+WaFwpjQ/
+2. 新增修改密码文件，ldif为后缀，不要在/etc/openldap/slapd.d目录下创建类似文件，生成的文件为需要通过命令去动态修改ldap现有配置，如下，在用户目录~下，创建文件
+
+# cd ~
+# vim changepwd.ldif
+dn: olcDatabase={0}config,cn=config
+changetype: modify
+add: olcRootPW
+olcRootPW: {SSHA}kUhPHG2ffoZKzwl/pUxQg6W+WaFwpjQ/
+密码修改配置文件内容解释：
+
+第一行执行配置文件，这里就表示指定为 cn=config/olcDatabase={0}config文件。到/etc/openldap/slapd.d/目录下就能找到此文件。
+
+第二行 changetype 指定类型为修改
+
+第三行 add表示添加 olcRootPW 配置项
+
+第四行指定 olcRootPW配置项的值
+
+在执行下面的命令前，可以查看原本的olcDatabase={0}config文件，里面是没有olcRootPW这个项的，执行命令后，你再看就会新增olcRootPW项，而且内容是我们文件中指定的值加密后的字符串
+
+3. 执行命令，修改ldap配置，通过-f 执行文件
+
+# ldapadd -Y EXTERNAL -H ldapi:/// -f changepwd.ldif
+4. 执行修改命令后，有如下输出则为正常：
+
+
+
+查看olcDatabase={0}config内容，cat /etc/openldap/slapd.d/cn\=config/olcDatabase\=\{0\}config.ldif，新增了一个olcRootPW项
+
+
+
+2.1.3. 导入基本schema
+我们需要向ldap中导入一些基本的schema。这些schema文件位于/etc/openldap/schema/目录中，schema控制着条目拥有哪些对象类和属性，可以自行选择需要的进行导入。依次执行下面的命令，导入基础的一些配置，我这里将所有的都导入一下，其中core.ldif是默认已经加载了的，不用导入。
+
+# ldapadd -Y EXTERNAL -H ldapi:/// -f /etc/openldap/schema/cosine.ldif
+# ldapadd -Y EXTERNAL -H ldapi:/// -f /etc/openldap/schema/nis.ldif
+# ldapadd -Y EXTERNAL -H ldapi:/// -f /etc/openldap/schema/inetorgperson.ldif
+# ldapadd -Y EXTERNAL -H ldapi:/// -f /etc/openldap/schema/collective.ldif
+# ldapadd -Y EXTERNAL -H ldapi:/// -f /etc/openldap/schema/corba.ldif
+# ldapadd -Y EXTERNAL -H ldapi:/// -f /etc/openldap/schema/duaconf.ldif
+# ldapadd -Y EXTERNAL -H ldapi:/// -f /etc/openldap/schema/dyngroup.ldif
+# ldapadd -Y EXTERNAL -H ldapi:/// -f /etc/openldap/schema/java.ldif
+# ldapadd -Y EXTERNAL -H ldapi:/// -f /etc/openldap/schema/misc.ldif
+# ldapadd -Y EXTERNAL -H ldapi:/// -f /etc/openldap/schema/openldap.ldif
+# ldapadd -Y EXTERNAL -H ldapi:/// -f /etc/openldap/schema/pmi.ldif
+# ldapadd -Y EXTERNAL -H ldapi:/// -f /etc/openldap/schema/ppolicy.ldif
+2.1.4. 修改域名
+修改域名，新增changedomain.ldif，这里自定义的域名为node1.com，管理员用户账号为admin。如果要修改，则修改文件中相应的dc=node3.com,dc=com为自己的域名。
+
+# vim changedomain.ldif
+dn: olcDatabase={1}monitor,cn=config
+changetype: modify
+replace: olcAccess
+olcAccess: {0}to * by dn.base="gidNumber=0+uidNumber=0,cn=peercred,cn=external,cn=auth" read by dn.base="cn=admin,dc=node3,dc=com" read by * none
+
+dn: olcDatabase={2}hdb,cn=config
+changetype: modify
+replace: olcSuffix
+olcSuffix: dc=node3,dc=com
+
+dn: olcDatabase={2}hdb,cn=config
+changetype: modify
+replace: olcRootDN
+olcRootDN: cn=admin,dc=node3,dc=com
+
+dn: olcDatabase={2}hdb,cn=config
+changetype: modify
+replace: olcRootPW
+olcRootPW: {SSHA}w9g8YjPiphKbTeuTC0xTcVyrH6I6XXBe
+
+dn: olcDatabase={2}hdb,cn=config
+changetype: modify
+add: olcAccess
+olcAccess: {0}to attrs=userPassword,shadowLastChange by dn="cn=admin,dc=node3,dc=com" write by anonymous auth by self write by * none
+olcAccess: {1}to dn.base="" by * read
+olcAccess: {2}to * by dn="cn=admin,dc=node3,dc=com" write by * read
+执行命令，修改配置
+
+# ldapmodify -Y EXTERNAL -H ldapi:/// -f changedomain.ldif
+最后这里有5个修改，所以执行会输出5行表示成功
+
+
+
+2.1.5. 启用memberof功能
+新增add-memberof.ldif，#开启memberof支持并新增用户支持memberof配置
+
+# vim add-memberof.ldif
+dn: cn=module{0},cn=config
+cn: module{0}
+objectClass: olcModuleList
+objectclass: top
+olcModuleload: memberof.la
+olcModulePath: /usr/lib64/openldap
+
+dn: olcOverlay={0}memberof,olcDatabase={2}hdb,cn=config
+objectClass: olcConfig
+objectClass: olcMemberOf
+objectClass: olcOverlayConfig
+objectClass: top
+olcOverlay: memberof
+olcMemberOfDangling: ignore
+olcMemberOfRefInt: TRUE
+olcMemberOfGroupOC: groupOfUniqueNames
+olcMemberOfMemberAD: uniqueMember
+olcMemberOfMemberOfAD: memberOf
+新增refint1.ldif文件
+
+# vim refint1.ldif
+dn: cn=module{0},cn=config
+add: olcmoduleload
+olcmoduleload: refint
+新增refint2.ldif文件
+
+# vim refint2.ldif
+dn: olcOverlay=refint,olcDatabase={2}hdb,cn=config
+objectClass: olcConfig
+objectClass: olcOverlayConfig
+objectClass: olcRefintConfig
+objectClass: top
+olcOverlay: refint
+olcRefintAttribute: memberof uniqueMember  manager owner
+依次执行下面命令，加载配置，顺序不能错
+
+# ldapadd -Q -Y EXTERNAL -H ldapi:/// -f add-memberof.ldif
+# ldapmodify -Q -Y EXTERNAL -H ldapi:/// -f refint1.ldif
+# ldapadd -Q -Y EXTERNAL -H ldapi:/// -f refint2.ldif
+至此，配置修改完了。
+
+2.1.6. 创建node3组织
+在上述基础上，我们来创建一个node3 company的组织，node3为域名，并在其下创建一个admin的组织角色(该组织角色内的用户具有管理整个LDAP的权限)和People和Group两个组织单元：
+
+# vim node3.ldif
+dn: dc=node3,dc=com
+dc: node3
+objectClass: top
+objectClass: domain
+o: node3
+
+dn: cn=admin,dc=node3,dc=com
+objectClass: organizationalRole
+cn: admin
+description: LDAP admin
+
+dn: dc=hdp,dc=node3,dc=com
+changetype: add
+dc: hdp
+objectClass: top
+objectClass: dcObject
+objectClass: organization
+o: hdp
+
+dn: ou=People,dc=hdp,dc=node3,dc=com
+ou: People
+objectClass: organizationalUnit
+
+dn: ou=Group,dc=hdp,dc=node3,dc=com
+ou: Group
+objectClass: organizationalUnit
+执行命令，添加配置，这里要注意修改域名为自己配置的域名，然后需要输入上面我们生成的密码
+
+# ldapadd -x -D cn=admin,dc=node3,dc=com -W -f node3.ldif
+添加结果为：
+
+
+
+ 注：这里的LDAP密码为节点2.2.2.1配置的管理者密码
+
+通过以上的所有步骤，我们就设置好了一个LDAP目录树：其中基准dc=node3,dc=com是该树的跟节点，其下有一个管理域cn=admin,dc=node3,dc=com和一个组织单元dc=hdp,dc=node3,dc=com, 其下有两个子属性ou=People,dc=hdp,dc=node3,dc=com及ou=Group,dc=hdp,dc=node3,dc=com。
+
+2.1.7. 创建新用户和新用户组的ldif文件
+先生成一个密码123456：
+
+# slappasswd -s 123456
+{SSHA}32S2uLFahPZMqMzVYhT8fOKOp8RzremG
+创建新用户的ldif文件
+
+# vim ldapuser.ldif
+
+#这里testUser用户，我将其加入到testgroup组中
+# create new
+# replace to your own domain name for "dc=***,dc=***" section
+dn: uid=testldap,ou=People,dc=hdp,dc=node3,dc=com
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+uid: testldap
+cn: testgroup
+sn: test
+userPassword: {SSHA}32S2uLFahPZMqMzVYhT8fOKOp8RzremG
+loginShell: /bin/bash
+uidNumber: 2000
+gidNumber: 3000
+homeDirectory: /home/testldap
+
+#这是添加一个用户组名为testgroup的cn，在名为Group的ou下
+dn: cn=testgroup,ou=Group,dc=hdp,dc=node3,dc=com
+objectClass: posixGroup
+cn: testgroup
+gidNumber: 3000
+memberUid: testldap
+向openldap服务端添加新用户testldap
+
+# ldapadd -x -D cn=admin,dc=node3,dc=com -W -f ldapuser.ldif
+为该用户修改密码为123456命令为：
+
+# ldappasswd -x -H ldap://192.168.1.107:389 -D "cn=admin,dc=node3,dc=com" -W "uid=testldap,ou=People,dc=hdp,dc=node3,dc=com" -s 123456
+注：
+
+ldap://192.168.1.107:389为openldap的服务端ip加端口；
+cn=admin,dc=node3,dc=com为openldap上面设置的管理者节点；
+uid=testldap,ou=People,dc=hdp,dc=node3,dc=com为用户id；
+123456为修改指定的用户密码。
+2.2. OpenLDAP客户端安装
+2.2.1. OpenLDAP客户端安装必要软件
+使用yum命令安装
+
+# yum install -y openldap openldap-clients sssd nss-pam-ldapd
+2.2.2.OpenLDAP客户端NSS服务配置
+1. 修改/etc/nslcd.conf
+
+# vim /etc/nslcd.conf
+uid nslcd
+gid ldap
+uri ldap://192.168.1.107:389
+# ldap目录树的基准
+base dc=node3,dc=com
+# ldap的管理域
+binddn cn=admin,dc=node3,dc=com
+# ldap管理者密码
+bindpw 123456
+ssl no
+tls_cacertdir /etc/openldap/cacerts
+2. 启动服务并设置开机自启动
+
+# chmod 600 /etc/nslcd.conf
+# systemctl start nslcd
+# systemctl enable nslcd
+3. 配置/etc/nsswitch.conf
+
+# vim /etc/nsswitch.conf
+#passwd:     files sss 
+#shadow:     files sss
+#group:      files sss
+#initgroups: files sss
+passwd:     files ldap
+shadow:     files ldap
+group:      files ldap
+hosts:      files dns myhostname
+bootparams: nisplus [NOTFOUND=return] files
+
+ethers:     files
+netmasks:   files
+networks:   files
+protocols:  files
+rpc:        files
+services:   files sss
+
+#netgroup:   files sss
+netgroup:   nisplus sss
+publickey:  nisplus
+automount:  files nisplus sss
+aliases:    files nisplus
+4. 测试是否可用
+
+# getent passwd | grep testldap
+testldap:x:2000:3000:testgroup:/home/testldap:/bin/bash
+2.2.3. OpenLDAP客户端SSSD服务配置
+1. 修改/etc/sssd/sssd.conf文件，在执行authconfig命令时默认生成，如果文件不存在则新建，文件内容如下：
+
+# vim /etc/sssd/sssd.conf
+[domain/default]
+autofs_provider = ldap
+ldap_schema = rfc2307bis
+krb5_realm = REDPEAK.COM
+ldap_search_base = dc=node3,dc=com
+krb5_server = 192.168.1.107
+id_provider = ldap 
+auth_provider = ldap
+chpass_provider = ldap
+ldap_uri = ldap://192.168.1.107:389
+ldap_id_use_start_tls = False
+cache_credentials = True
+ldap_tls_cacertdir = /etc/openldap/cacerts
+[sssd]
+services = nss, pam, autofs
+domains = default
+
+[nss]
+homedir_substring = /home
+
+[pam]
+
+[sudo]
+
+[autofs]
+
+[ssh]
+
+[pac]
+
+[ifp]
+
+[secrets]
+2. 修改sssd.conf文件权限
+
+# chmod 600 /etc/sssd/sssd.conf
+3. 启动sssd服务并加入系统自启动
+
+# systemctl start sssd
+# systemctl enable sssd
+# systemctl status sssd
+2.2.4. OpenLDAP与SSH集成
+1. 修改配置文件/et    c/ssh/sshd_config，是ssh通过pam认证账号
+
+PasswordAuthentication yes
+
+UsePAM yes
+注意：默认使用的是密码认证方式，在集成SSH登录时需要确保PasswordAuthentication yes配置为yes。
+
+2. 修改配置文件/etc/pam.d/sshd，以确认调用pam认证文件
+
+# vim /etc/pam.d/sshd
+#%PAM-1.0
+auth       required     pam_sepermit.so
+auth       substack     password-auth
+auth       include      postlogin
+# Used with polkit to reauthorize users in remote sessions
+-auth      optional     pam_reauthorize.so prepare
+account    required     pam_nologin.so
+account    include      password-auth
+password   include      password-auth
+# pam_selinux.so close should be the first session rule
+session    required     pam_selinux.so close
+session    required     pam_loginuid.so
+# pam_selinux.so open should only be followed by sessions to be executed in the user context
+session    required     pam_selinux.so open env_params
+session    required     pam_namespace.so
+session    optional     pam_keyinit.so force revoke
+session    include      password-auth
+session    include      postlogin
+#加入此行后确保登录成功后创建用户的home目录
+session    required     pam_mkhomedir.so
+# Used with polkit to reauthorize users in remote sessions
+-session   optional     pam_reauthorize.so prepare
+3. 修改配置文件/etc/pam.d/password-auth
+
+# vim /etc/pam.d/password-auth
+#%PAM-1.0
+# This file is auto-generated.
+# User changes will be destroyed the next time authconfig is run.
+auth        required      pam_env.so
+auth        required      pam_faildelay.so delay=2000000
+auth        [default=1 ignore=ignore success=ok] pam_succeed_if.so uid >= 1000 quiet
+auth        [default=1 ignore=ignore success=ok] pam_localuser.so
+auth        sufficient    pam_unix.so nullok try_first_pass
+auth        requisite     pam_succeed_if.so uid >= 1000 quiet_success
+#auth        sufficient    pam_sss.so forward_pass
+auth        sufficient    pam_ldap.so forward_pass
+auth        required      pam_deny.so
+
+account     required      pam_unix.so broken_shadow
+account     sufficient    pam_localuser.so
+account     sufficient    pam_succeed_if.so uid < 1000 quiet
+#account     [default=bad success=ok user_unknown=ignore] pam_sss.so
+account     [default=bad success=ok user_unknown=ignore] pam_ldap.so
+
+account     required      pam_permit.so
+
+password    requisite     pam_pwquality.so try_first_pass local_users_only retry=3 authtok_type=
+password    sufficient    pam_unix.so sha512 shadow nullok try_first_pass use_authtok
+#password    sufficient    pam_sss.so use_authtok
+password    sufficient    pam_ldap.so use_authtok
+
+password    required      pam_deny.so
+
+session     optional      pam_keyinit.so revoke
+session     required      pam_limits.so
+-session     optional      pam_systemd.so
+session     optional      pam_mkhomedir.so umask=0077
+session     [success=1 default=ignore] pam_succeed_if.so service in crond quiet use_uid
+session     required      pam_unix.so
+#session     optional      pam_sss.so
+session     optional      pam_ldap.so
+4. 修改配置文件/etc/pam.d/system-auth配置文件
+
+# vim /etc/pam.d/system-auth
+#%PAM-1.0
+# This file is auto-generated.
+# User changes will be destroyed the next time authconfig is run.
+auth        required      pam_env.so
+auth        required      pam_faildelay.so delay=2000000
+auth        sufficient    pam_fprintd.so
+auth        [default=1 ignore=ignore success=ok] pam_succeed_if.so uid >= 1000 quiet
+auth        [default=1 ignore=ignore success=ok] pam_localuser.so
+auth        sufficient    pam_unix.so nullok try_first_pass
+auth        requisite     pam_succeed_if.so uid >= 1000 quiet_success
+#auth        sufficient    pam_sss.so forward_pass
+auth        sufficient    pam_ldap.so forward_pass
+auth        required      pam_deny.so
+
+account     required      pam_unix.so broken_shadow
+account     sufficient    pam_localuser.so
+account     sufficient    pam_succeed_if.so uid < 1000 quiet
+#account     [default=bad success=ok user_unknown=ignore] pam_sss.so
+account     [default=bad success=ok user_unknown=ignore] pam_ldap.so
+account     required      pam_permit.so
+
+password    requisite     pam_pwquality.so try_first_pass local_users_only retry=3 authtok_type=
+password    sufficient    pam_unix.so sha512 shadow nullok try_first_pass use_authtok
+#password    sufficient    pam_sss.so use_authtok
+password    sufficient    pam_ldap.so use_authtok
+password    required      pam_deny.so
+
+session     optional      pam_keyinit.so revoke
+session     required      pam_limits.so
+-session     optional      pam_systemd.so
+session     optional      pam_mkhomedir.so umask=0077
+session     [success=1 default=ignore] pam_succeed_if.so service in crond quiet use_uid
+session     required      pam_unix.so
+#session     optional      pam_sss.so
+session     optional      pam_ldap.so
+5. 重启ssh、sssd和nslcd
+
+# systemctl restart sshd
+# systemctl restart sssd
+# systemctl restart nslcd
+到此为止就完成了OpenLDAP与SSH的集成
+
+2.2.5. 验证SSH登录
+随便登录一台机器
+
+1. 确认testldap用户只存在于OpenLDAP
+
+# more /etc/passwd |grep testldap
+# id testldap
+uid=2000(testldap) gid=2000(testgroup) groups=2000(testgroup)
+2. su切换至testldap用户
+
+# su testldap
+# id testldap
+uid=2000(testldap) gid=2000(testgroup) groups=2000(testgroup)
+3. ssh登录
+
+# ssh testldap@node2
+testldap@node2's password: 
+Last failed login: Mon Jan 20 17:16:03 CST 2020 from node2 on ssh:notty
+There were 3 failed login attempts since the last successful login.
+Last login: Mon Jan 20 17:14:51 2020 from node2
+[testldap@node2 ~]$ pwd
+/home/testldap
+[testldap@node2 ~]$ id
+uid=2000(testldap) gid=3000(testgroup) groups=3000(testgroup)
+3. ldap常用命令
+　　查询所有用户及用户组：
+
+ldapsearch -LL -Y EXTERNAL -H ldapi:///  -b dc=node3,dc=com
+　　删除某一用户：
+
+ldapdelete -x -D cn=admin,dc=node3,dc=com "uid=tenant1,ou=People,dc=hdp,dc=node3,dc=com" -w 123456
+　　为某一用户修改密码为12345：
+
+ ldappasswd -x -H ldap://192.168.1.107:389 -D "cn=admin,dc=node3,dc=com" -W 123456 "uid=tenant1,ou=People,dc=hdp,dc=node3,dc=com" -s 12345
+4. 备份与还原
+　　root用户执行命令　　
+
+　　备份组织结构：
+
+ldapsearch -x -D "cn=admin,dc=apache,dc=org" -w ldap@123 -h node214 -p 389 -b "dc=apache,dc=org" "(objectclass=organizationalUnit)" > apache_ou_bak.ldif
+　　备份用户组：
+
+ldapsearch -x -D "cn=admin,dc=apache,dc=org" -w ldap@123 -h node214 -p 389 -b "dc=apache,dc=org" "(objectclass=posixGroup)" > apache_group_bak.ldif
+　　备份用户：
+
+ldapsearch -x -D "cn=admin,dc=apache,dc=org" -w ldap@123 -h node214 -p 389 -b "dc=apache,dc=org" "(objectclass=inetOrgPerson)" > apache_people_bak.ldif
+ 
+
+　　还原组织结构：
+
+ldapadd -x -H ldap://192.168.1.107:389 -D "cn=admin,dc=apache,dc=org" -w 123456 -f apache_ou_bak.ldif
+　　还原用户组：
+
+ldapadd -x -H ldap://192.168.1.107:389 -D "cn=admin,dc=apache,dc=org" -w 123456 -f apache_group_bak.ldif
+　　还原用户：
+
+ldapadd -x -H ldap://192.168.1.107:389 -D "cn=admin,dc=apache,dc=org" -w 123456 -f apache_people_bak.ldif
+　　注：
+
+-H ldap://192.168.1.107:389                  ldap server的服务器ip和端口
+-D "cn=admin,dc=apache,dc=org"         用来绑定服务器的DN，通常是admin的DN
+-w 123456                                              绑定DN的密码
+-f apache_people_bak.ldif                      使用ldif文件进行条目添加的文件
+5. ldap遇到的问题
+5.1. OpenLDAP报open files too many连接数过高
+　　问题描述：登录ldap用户登录不上，并且连接ldap服务器执行ldap修改命令卡住，使用命令“netstat -apn | grep slapd”发现ldap服务器的slapd与客户端nslcd建立的ESTABLISHED非常多，并且连接数一直在增长。使用systemctl status slapd，会看到“warning: cannot open /etc/hosts.allow: Too many open files”的提示，如图所示：　　
+
+　　　
+
+　　问题原因：连接数过高的时候（默认open files为1024），slapd就会hang死，并且此时打开的文件数也异常之高。服务端一直保持与客户端建立长连接，不主动释放连接，同时客户端默认与服务端是紧耦合的连接方式，会一直尝试连接服务端。
+
+　　通过“cat  /proc/`pidof slapd`/limits”，可以查看slapd进程的描述符信息，即open files的最大值。
+
+　　问题解决：在启动脚本的[Service]标签中增加一行LimitNOFILE=8192，并重启服务即可修改原有的文件描述符。启动脚本修改后的内容如下：
+
+　　
+
+ 　　重新加载启动脚本并重启服务
+
+systemctl daemon-reload
+systemctl restart slapd
+　　再次查看Openldap的文件描述符已经成功修改。
+
+ 　　　
+
+6. 总结
+【参考资料】
+
+https://www.cnblogs.com/somata/p/LinuxLDAPUserAuthentication.html 配置Linux使用LDAP用户认证（本地登录成功示例）
+
+https://cloud.tencent.com/developer/article/1100823  如何在RedHat7中实现OpenLDAP集成SSH登录并使用sssd同步用户 （ssh登录成功示例）
+
+https://blog.csdn.net/weixin_41004350/article/details/89521170 失败案例
+
+https://blog.csdn.net/u010783533/article/details/88572697 搭建ldap
+
+https://segmentfault.com/a/1190000010270703 php ldap扩展
+
+https://www.cnblogs.com/jpfss/p/11021948.html Linux下LDAP统一认证解决方案
+
+https://blog.csdn.net/u011607971/article/details/86153608 LDAP_ACCOUNT_MANAGER安装
+
+https://www.cnblogs.com/zsql/p/11759422.html 离线安装openldap，解决yum命令后出现libldap-2.4.so.2: cannot open shared object file
+
+https://www.jianshu.com/p/e196b75a47a2 centos7 限制ldap用户登陆主机
+
+https://blog.mowd.tw/p/844 Ubuntu 設定 LDAP + PAM + NFS 實現多台電腦單一帳號驗證
+
+https://cloud.tencent.com/developer/article/1026304 Centos7.2下针对LDAP的完整部署记录
+
+https://blog.csdn.net/dqatsh/article/details/2961758 使用OpenLDAP实现集中用户认证
+
+http://www.ttlsa.com/linux/openldap-openssh-lpk-sudo-tls-auth/ LINUX下基于LDAP集中系统用户认证系统
+
+https://www.cnblogs.com/dufeixiang/p/11624210.html linux 利用LDAP身份集中认证
+
+https://boke.wsfnk.com/archives/433.html 如何添加用户条目 Add Users 及如何将本地linux账户添加至ldap条目树中
+
+https://www.cnblogs.com/lfdblog/p/9805245.html  ldap 用户组和用户
+
+https://cloud.tencent.com/developer/article/1078660 如何在OpenLDAP中实现将一个用户添加到多个组
+
+https://blog.csdn.net/listen2you/article/details/82706921 启用OpenLDAP的memberOf特性
+
+http://www.ldap.org.cn/296.html
+
+https://www.jianshu.com/p/e196b75a47a2
+
+https://segmentfault.com/a/1190000007053961 服务端slapd与客户端nslcd连接问题
+
+https://blog.51cto.com/12113362/2050542 ldap 初始化配置
+
+分类: Linux系列
